@@ -1,0 +1,129 @@
+---
+title: "Root CDFA transportation data analysis part 1"
+format: html
+editor: visual
+---
+
+## R script for analyzing CF transportation data - part 1
+
+### Loading libraries and setting working directory
+
+Packages named `readr`, `dplyr`, `purrr`, `stringr` are required. If they are not installed, erase \# in front of the code `install.package` to have them installed.
+
+```{r}
+# Library installation and loading
+#install.packages('readr')
+#install.packages('dplyr')
+#install.packages('purrr')
+#install.packages('stringr')
+library(readr)
+library(dplyr)
+library(purrr)
+library(stringr)
+
+```
+
+Before importing the data sets, it is recommended to have the script where the data sets are located and set that location as working directory. Please change the directory where your data sets are located.
+
+```{r}
+# Setting the working directory
+setwd("C:/ CHANGE_DIRECTORY_HERE") 
+
+```
+
+### Loading dataset and data cleaning
+
+Use the code `read.csv` to read csv files generated with FIJI.\
+The table within the csv files are modified for easier utilization.
+
+The code below will read all csv files in your working directory and generate new csv files with \_cleaned after the original name which contain the last value above the threshold and the distance, the total length of the seedlings and the percentage of distance travelled by the fluorescence.
+
+You can also see the summary table summarising the mentioned values within R.
+
+```{r}
+threshold <- 5
+
+process_seedling <- function(path, threshold = 5, write_cleaned = TRUE) {
+
+  df <- read_csv(path, show_col_types = FALSE) %>%
+    rename(distance = `Distance_(mm)`,
+           gray     = Gray_Value) %>%
+    mutate(
+      distance = as.numeric(distance),
+      gray     = as.numeric(gray)
+    ) %>%
+    filter(!is.na(distance), !is.na(gray)) %>%
+    arrange(distance)
+
+  # index of the last row where gray is >= threshold
+  idx_last <- which(df$gray >= threshold)
+
+  if (length(idx_last) == 0) {
+    # never above threshold
+    last_dist <- NA_real_
+    last_gray <- NA_real_
+    cleaned   <- df[0, ]  # empty
+  } else {
+    i <- max(idx_last)
+    last_dist <- df$distance[i]
+    last_gray <- df$gray[i]
+
+    # "cleaned" version: keep data up to the last above-threshold point
+    cleaned <- df %>% slice(1:i)
+  }
+
+  total_length <- dplyr::last(df$distance)
+  percent_length <- ifelse(is.na(last_dist) | total_length == 0,
+                           NA_real_,
+                           100 * last_dist / total_length)
+
+  summary <- tibble(
+    file                 = basename(path),
+    threshold            = threshold,
+    distance_last_above  = last_dist,
+    gray_at_last_above   = last_gray,
+    total_length         = total_length,
+    percent_length       = percent_length
+  )
+
+  if (write_cleaned) {
+    out_name <- str_replace(basename(path), "\\.csv$", "_cleaned.csv")
+    write_csv(cleaned, out_name)
+  }
+
+  list(summary = summary, cleaned = cleaned)
+}
+
+# ---- Run on all csv files in a folder ----
+files <- list.files(pattern = "\\.csv$", full.names = TRUE)
+
+results <- map(files, process_seedling, threshold = threshold, write_cleaned = TRUE)
+
+summary_table <- bind_rows(map(results, "summary")) %>%
+  arrange(file)
+
+write_csv(summary_table, "fluorescence_threshold_summary.csv")
+
+summary_table
+
+
+```
+
+### Computing mean percentage traveled by fluorescence
+
+```{r}
+
+summary_NAME_HERE <- read_csv("summary_NAME_HERE.csv", show_col_types = FALSE)
+
+
+stats_NAME_HERE <- summary_NAME_HERE %>%
+  summarise(
+    n = sum(!is.na(percent_length)),
+    mean_percent = mean(percent_length, na.rm = TRUE),
+    sd_percent = sd(percent_length, na.rm = TRUE)
+  )
+
+write_csv(stats_NAME_HERE, "FINAL_FILE_NAME.csv")
+
+
+```
